@@ -5,7 +5,7 @@ from typing import Any
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import LLMResponse
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
 try:
@@ -41,7 +41,6 @@ class PluginConfig:
             return []
 
 
-@register("astrbot_plugin_iamthinking", "bytedance", "为 LLM 对话贴表情提示处理中/完成", "v0.1.0")
 class IAmThinkingPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -94,7 +93,17 @@ class IAmThinkingPlugin(Star):
                     set_,
                 )
                 await bot.set_msg_emoji_like(message_id=message_id, emoji_id=emoji_id, set=set_)
-            except (AttributeError, RuntimeError, TypeError, ValueError) as e:
+            except (TimeoutError, ConnectionError, OSError) as e:
+                all_ok = False
+                logger.warning(
+                    "[iamthinking] 贴表情失败: message_id=%s emoji_id=%s set=%s event=%s err=%s",
+                    message_id,
+                    emoji_id,
+                    set_,
+                    type(event).__name__,
+                    e,
+                )
+            except Exception as e:
                 all_ok = False
                 logger.warning(
                     "[iamthinking] 贴表情失败: message_id=%s emoji_id=%s set=%s event=%s err=%s",
@@ -150,6 +159,9 @@ class IAmThinkingPlugin(Star):
         if event.get_extra("iamthinking_done", False):
             logger.debug("[iamthinking] 已完成标记，跳过")
             return
+        if event.get_extra("iamthinking_failed", False):
+            logger.debug("[iamthinking] 已标记失败，跳过")
+            return
         if event.get_extra("iamthinking_finishing", False):
             logger.debug("[iamthinking] 完成处理中，跳过")
             return
@@ -163,6 +175,13 @@ class IAmThinkingPlugin(Star):
         message_id = event.get_extra("iamthinking_message_id")
         if message_id is None:
             logger.debug("[iamthinking] message_id 为空，跳过")
+            return
+
+        max_retry = 3
+        retry_count = event.get_extra("iamthinking_finish_retry", 0) or 0
+        if retry_count >= max_retry:
+            logger.debug("[iamthinking] 完成表情处理失败次数过多，停止重试")
+            event.set_extra("iamthinking_failed", True)
             return
 
         event.set_extra("iamthinking_finishing", True)
@@ -185,4 +204,5 @@ class IAmThinkingPlugin(Star):
             event.set_extra("iamthinking_done", True)
         else:
             logger.debug("[iamthinking] 完成表情处理未全部成功，允许重试")
+            event.set_extra("iamthinking_finish_retry", retry_count + 1)
             event.set_extra("iamthinking_finishing", False)
