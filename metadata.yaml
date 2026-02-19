@@ -1,6 +1,6 @@
 name: astrbot_plugin_iamthinking
 display_name: I Am Thinking
-desc: 为 LLM 对话贴表情提示处理中/完成
+desc: 别吵我在思考！为 LLM 对话贴表情提示处理中/完成，这对思考型模型的用户体验有一定提升
 version: v0.1.0
-author: bytedance
-repo: ""
+author: 石上三年
+repo: "https://github.com/sssn-tech/astrbot_plugin_iamthinking"
