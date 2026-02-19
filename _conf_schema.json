@@ -1,0 +1,24 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "type": "bool",
+    "default": true
+  },
+  "thinking_emoji_ids": {
+    "description": "处理中表情ID列表",
+    "hint": "收到消息并准备调用 LLM 时，会为用户消息贴上这些表情（OneBot/QQ 表情ID）",
+    "type": "list",
+    "default": [66]
+  },
+  "done_emoji_ids": {
+    "description": "完成表情ID列表",
+    "hint": "发送回复后，会为用户消息贴上这些表情（OneBot/QQ 表情ID）",
+    "type": "list",
+    "default": [74]
+  },
+  "remove_thinking_on_done": {
+    "description": "完成后移除处理中表情",
+    "type": "bool",
+    "default": true
+  }
+}

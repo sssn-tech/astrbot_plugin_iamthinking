@@ -1,14 +1,16 @@
-# astrbot-plugin-helloworld
+# astrbot_plugin_iamthinking
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+收到用户消息并准备调用 LLM 时，为这条用户消息贴一个表情表示处理中；发送回复后，再贴一个表情表示处理完成。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+## 配置
 
-# Supports
+插件配置通过 `_conf_schema.json` 提供，默认仅在 QQ OneBot (aiocqhttp) 平台生效：
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+- enabled：是否启用
+- thinking_emoji_ids：处理中表情 ID 列表
+- done_emoji_ids：完成表情 ID 列表
+- remove_thinking_on_done：完成后是否移除处理中表情
+
+## 说明
+
+插件只在 AstrBot 准备调用 LLM 时触发，不会对普通消息、指令消息贴表情。
