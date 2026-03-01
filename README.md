@@ -1,3 +1,5 @@
+如果喜欢这个插件请点个star非常感谢(｡◕◡◕｡)ﾉ
+
 # astrbot_plugin_iamthinking
 
 别吵，我在思考！
