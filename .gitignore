@@ -208,3 +208,6 @@ __marimo__/
 
 TASK.md
 dev_test_runtime.py
+
+# ZCode agent working files
+.zcode/

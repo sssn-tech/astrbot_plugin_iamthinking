@@ -81,6 +81,22 @@ class IAmThinkingPlugin(Star):
             return False
         return bool(event.get_group_id())
 
+    def _should_handle(self, event: AstrMessageEvent) -> bool:
+        """通用守卫：插件启用、激活、未完成、未超时、平台匹配。"""
+        if not self.cfg.enabled:
+            return False
+        if not event.get_extra("iamthinking_active", False):
+            return False
+        if event.get_extra("iamthinking_done", False):
+            return False
+        if event.get_extra("iamthinking_timed_out", False):
+            return False
+        if not self._is_aiocqhttp(event):
+            return False
+        if AiocqhttpMessageEvent is not None and not isinstance(event, AiocqhttpMessageEvent):
+            return False
+        return True
+
     def _get_bot(self, event: AstrMessageEvent):
         bot = getattr(event, "bot", None)
         if bot is None:
@@ -114,16 +130,6 @@ class IAmThinkingPlugin(Star):
                     set_,
                 )
                 await bot.set_msg_emoji_like(message_id=message_id, emoji_id=emoji_id, set=set_)
-            except (TimeoutError, ConnectionError, OSError) as e:
-                all_ok = False
-                logger.warning(
-                    "[iamthinking] 贴表情失败: message_id=%s emoji_id=%s set=%s event=%s err=%s",
-                    message_id,
-                    emoji_id,
-                    set_,
-                    type(event).__name__,
-                    e,
-                )
             except Exception as e:
                 all_ok = False
                 logger.warning(
@@ -141,10 +147,13 @@ class IAmThinkingPlugin(Star):
         event: AstrMessageEvent,
         message_id: Any,
         *,
+        state_name: str = "",
         remove_emoji_ids: list[int] | None = None,
         add_emoji_ids: list[int] | None = None,
     ) -> bool:
         """切换表情状态：先移除旧表情，再贴上新表情。"""
+        if state_name:
+            logger.info("[iamthinking] 状态切换 [%s]: message_id=%s", state_name, message_id)
         all_ok = True
         if remove_emoji_ids:
             ok = await self._emoji_like(event, message_id, remove_emoji_ids, set_=False)
@@ -154,8 +163,20 @@ class IAmThinkingPlugin(Star):
             all_ok = all_ok and ok
         return all_ok
 
+    def _current_display_emoji_ids(self, event: AstrMessageEvent) -> list[int]:
+        """根据当前状态返回正在显示的表情（思考中或工具调用）。"""
+        if event.get_extra("iamthinking_in_tool", False):
+            return list(self.cfg.using_tool_emoji_ids)
+        return list(self.cfg.thinking_emoji_ids)
+
     async def _handle_timeout(self, event: AstrMessageEvent, message_id: Any):
-        """超时回调：移除思考表情，贴上失败表情。"""
+        """超时回调：等待超时阈值后，移除当前显示的表情，贴上失败表情。"""
+        try:
+            await asyncio.sleep(self.cfg.timeout_seconds)
+        except asyncio.CancelledError:
+            logger.debug("[iamthinking] 超时任务被取消: message_id=%s", message_id)
+            return
+
         self._timeout_tasks.pop(message_id, None)
 
         if event.get_extra("iamthinking_done", False):
@@ -168,19 +189,25 @@ class IAmThinkingPlugin(Star):
         logger.info("[iamthinking] LLM 超时: message_id=%s", message_id)
         event.set_extra("iamthinking_timed_out", True)
 
-        # 根据当前状态决定要移除哪些表情
+        # 移除当前正在显示的表情（思考或工具调用），换成失败表情
         remove_ids: list[int] = []
-        if event.get_extra("iamthinking_in_tool", False):
-            remove_ids = self.cfg.using_tool_emoji_ids
-        elif self.cfg.remove_thinking_on_error:
-            remove_ids = self.cfg.thinking_emoji_ids
+        if self.cfg.remove_thinking_on_error:
+            remove_ids = self._current_display_emoji_ids(event)
 
         await self._transition_state(
             event,
             message_id,
+            state_name="→ ERROR",
             remove_emoji_ids=remove_ids if remove_ids else None,
             add_emoji_ids=self.cfg.error_emoji_ids if self.cfg.error_emoji_ids else None,
         )
+
+    def _cancel_timeout(self, message_id: Any):
+        """取消并移除指定消息的超时任务。"""
+        task = self._timeout_tasks.pop(message_id, None)
+        if task is not None:
+            task.cancel()
+            logger.debug("[iamthinking] 取消超时任务: message_id=%s", message_id)
 
     @filter.on_waiting_llm_request()
     async def on_waiting_llm_request(self, event: AstrMessageEvent):
@@ -226,71 +253,47 @@ class IAmThinkingPlugin(Star):
 
         # 取消超时任务
         message_id = event.get_extra("iamthinking_message_id")
-        if message_id is not None and message_id in self._timeout_tasks:
-            self._timeout_tasks.pop(message_id).cancel()
-            logger.debug("[iamthinking] 取消超时任务: message_id=%s", message_id)
+        if message_id is not None:
+            self._cancel_timeout(message_id)
 
     @filter.on_using_llm_tool()
     async def on_using_llm_tool(self, event: AstrMessageEvent, tool: Any, tool_args: dict):
-        if not self.cfg.enabled:
+        if not self._should_handle(event):
             return
-        if not event.get_extra("iamthinking_active", False):
-            return
-        if event.get_extra("iamthinking_done", False):
-            return
-        if event.get_extra("iamthinking_timed_out", False):
-            return
-        if not self._is_aiocqhttp(event):
-            return
-        if AiocqhttpMessageEvent is not None and not isinstance(event, AiocqhttpMessageEvent):
+        # 已在工具状态中，不重复切换
+        if event.get_extra("iamthinking_in_tool", False):
             return
 
         message_id = event.get_extra("iamthinking_message_id")
         if message_id is None:
             return
 
-        # 已在工具状态中，不重复切换
-        if event.get_extra("iamthinking_in_tool", False):
-            return
-
-        logger.debug("[iamthinking] 切换到工具调用状态: message_id=%s", message_id)
         event.set_extra("iamthinking_in_tool", True)
-
         remove_ids = self.cfg.thinking_emoji_ids if self.cfg.remove_thinking_on_tool else None
         await self._transition_state(
             event,
             message_id,
+            state_name="THINKING → USING_TOOL",
             remove_emoji_ids=remove_ids,
             add_emoji_ids=self.cfg.using_tool_emoji_ids,
         )
 
     @filter.on_llm_tool_respond()
     async def on_llm_tool_respond(self, event: AstrMessageEvent, tool: Any, tool_args: dict, tool_result: Any):
-        if not self.cfg.enabled:
-            return
-        if not event.get_extra("iamthinking_active", False):
+        if not self._should_handle(event):
             return
         if not event.get_extra("iamthinking_in_tool", False):
-            return
-        if event.get_extra("iamthinking_done", False):
-            return
-        if event.get_extra("iamthinking_timed_out", False):
-            return
-        if not self._is_aiocqhttp(event):
-            return
-        if AiocqhttpMessageEvent is not None and not isinstance(event, AiocqhttpMessageEvent):
             return
 
         message_id = event.get_extra("iamthinking_message_id")
         if message_id is None:
             return
 
-        logger.debug("[iamthinking] 工具调用完成，切回思考状态: message_id=%s", message_id)
         event.set_extra("iamthinking_in_tool", False)
-
         await self._transition_state(
             event,
             message_id,
+            state_name="USING_TOOL → THINKING",
             remove_emoji_ids=self.cfg.using_tool_emoji_ids,
             add_emoji_ids=self.cfg.thinking_emoji_ids,
         )
@@ -337,44 +340,31 @@ class IAmThinkingPlugin(Star):
 
         event.set_extra("iamthinking_finishing", True)
 
-        # 判断是否之前已超时
-        timed_out = event.get_extra("iamthinking_timed_out", False)
-        in_tool = event.get_extra("iamthinking_in_tool", False)
-
-        if timed_out:
-            # 超时后恢复：移除 error 表情（和可能的 tool 表情），贴 done 表情
+        # 计算需要移除的表情：当前显示的（思考或工具调用）+ 超时时的失败表情
+        remove_ids: list[int] = self._current_display_emoji_ids(event)
+        if event.get_extra("iamthinking_timed_out", False):
+            # 超时后恢复：还需移除失败表情
             logger.info("[iamthinking] 超时后恢复完成: message_id=%s", message_id)
-            remove_ids: list[int] = list(self.cfg.error_emoji_ids)
-            if in_tool and self.cfg.using_tool_emoji_ids:
-                remove_ids.extend(self.cfg.using_tool_emoji_ids)
-            elif self.cfg.thinking_emoji_ids:
-                remove_ids.extend(self.cfg.thinking_emoji_ids)
-
-            done_ok = await self._transition_state(
-                event,
-                message_id,
-                remove_emoji_ids=remove_ids,
-                add_emoji_ids=self.cfg.done_emoji_ids,
-            )
+            remove_ids.extend(self.cfg.error_emoji_ids)
+            state_name = "ERROR → DONE"
         else:
-            # 正常完成
-            remove_ids = []
-            if in_tool and self.cfg.using_tool_emoji_ids:
-                remove_ids = list(self.cfg.using_tool_emoji_ids)
-            elif self.cfg.remove_thinking_on_done:
-                remove_ids = list(self.cfg.thinking_emoji_ids)
+            # 正常完成：若配置不需要移除思考表情则清空
+            state_name = "→ DONE"
+            if not self.cfg.remove_thinking_on_done and not event.get_extra("iamthinking_in_tool", False):
+                remove_ids = []
 
-            done_ok = await self._transition_state(
-                event,
-                message_id,
-                remove_emoji_ids=remove_ids if remove_ids else None,
-                add_emoji_ids=self.cfg.done_emoji_ids,
-            )
+        done_ok = await self._transition_state(
+            event,
+            message_id,
+            state_name=state_name,
+            remove_emoji_ids=remove_ids if remove_ids else None,
+            add_emoji_ids=self.cfg.done_emoji_ids,
+        )
 
         if done_ok:
             event.set_extra("iamthinking_done", True)
             # 清理超时任务（可能 LLM 响应和 after_message_sent 几乎同时触发）
-            self._timeout_tasks.pop(message_id, None)
+            self._cancel_timeout(message_id)
         else:
             logger.debug("[iamthinking] 完成表情处理未全部成功，允许重试")
             event.set_extra("iamthinking_finish_retry", retry_count + 1)
