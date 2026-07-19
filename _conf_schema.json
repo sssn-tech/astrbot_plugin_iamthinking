@@ -20,5 +20,33 @@
     "description": "完成后移除处理中表情",
     "type": "bool",
     "default": true
+  },
+  "timeout_seconds": {
+    "description": "LLM 超时阈值（秒）",
+    "hint": "超过此时间 LLM 未响应则标记为超时，贴上失败表情。设为 0 则禁用超时检测",
+    "type": "int",
+    "default": 120
+  },
+  "error_emoji_ids": {
+    "description": "超时/失败表情ID列表",
+    "hint": "LLM 超时或失败时贴上的表情（OneBot/QQ 表情ID）",
+    "type": "list",
+    "default": [264]
+  },
+  "remove_thinking_on_error": {
+    "description": "超时后移除处理中表情",
+    "type": "bool",
+    "default": true
+  },
+  "using_tool_emoji_ids": {
+    "description": "工具调用表情ID列表",
+    "hint": "LLM 调用工具（如搜索、查资料）时贴上的表情（OneBot/QQ 表情ID）",
+    "type": "list",
+    "default": [270]
+  },
+  "remove_thinking_on_tool": {
+    "description": "切换到工具调用状态时移除处理中表情",
+    "type": "bool",
+    "default": true
   }
 }
