@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, ResultContentType, filter
 from astrbot.api.provider import LLMResponse
 from astrbot.api.star import Context, Star
 from astrbot.core.config.astrbot_config import AstrBotConfig
@@ -298,17 +298,12 @@ class IAmThinkingPlugin(Star):
             add_emoji_ids=self.cfg.thinking_emoji_ids,
         )
 
-    @filter.after_message_sent()
-    async def after_message_sent(self, event: AstrMessageEvent):
-        logger.debug("[iamthinking] after_message_sent 触发")
+    async def _mark_done(self, event: AstrMessageEvent):
         if not self.cfg.enabled:
             logger.debug("[iamthinking] 插件未启用，跳过")
             return
         if not event.get_extra("iamthinking_active", False):
             logger.debug("[iamthinking] 未处于激活状态，跳过")
-            return
-        if not event.get_extra("iamthinking_llm_responded", False):
-            logger.debug("[iamthinking] LLM 未响应，跳过")
             return
         if event.get_extra("iamthinking_done", False):
             logger.debug("[iamthinking] 已完成标记，跳过")
@@ -369,3 +364,18 @@ class IAmThinkingPlugin(Star):
             logger.debug("[iamthinking] 完成表情处理未全部成功，允许重试")
             event.set_extra("iamthinking_finish_retry", retry_count + 1)
             event.set_extra("iamthinking_finishing", False)
+
+    @filter.on_decorating_result()
+    async def on_decorating_result(self, event: AstrMessageEvent):
+        """流式模式适配：检测到流式传输完成 (STREAMING_FINISH) 时触发贴表情。"""
+        result = event.get_result()
+        if result and result.result_content_type == ResultContentType.STREAMING_FINISH:
+            logger.debug("[iamthinking] 捕获到 STREAMING_FINISH，执行完成收尾")
+            await self._mark_done(event)
+
+    @filter.after_message_sent()
+    async def after_message_sent(self, event: AstrMessageEvent):
+        """非流式模式：消息发送完成后触发贴表情。"""
+        logger.debug("[iamthinking] after_message_sent 触发")
+        await self._mark_done(event)
+
