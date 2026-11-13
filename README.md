@@ -24,6 +24,7 @@
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | enabled | bool | true | 是否启用 |
+| pick_random | bool | true | 多个表情时随机取一个贴上，关掉则依次贴整个列表（受单条消息只有一个回应位的限制，实际只有最后一个生效） |
 | thinking_emoji_ids | list[int] | [66] | 处理中表情 ID 列表 |
 | done_emoji_ids | list[int] | [74] | 完成表情 ID 列表 |
 | remove_thinking_on_done | bool | true | 完成后是否移除处理中表情 |

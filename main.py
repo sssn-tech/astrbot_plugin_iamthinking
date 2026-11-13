@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any
 
 from astrbot.api import logger
@@ -28,6 +29,8 @@ class PluginConfig:
         self.remove_thinking_on_error = bool(config.get("remove_thinking_on_error", True))
         self.using_tool_emoji_ids = self._as_int_list(config.get("using_tool_emoji_ids", [270]))
         self.remove_thinking_on_tool = bool(config.get("remove_thinking_on_tool", True))
+        # 多个表情 id 时随机取一个贴上，而不是全部贴
+        self.pick_random = bool(config.get("pick_random", True))
 
     @staticmethod
     def _as_int_list(value: Any) -> list[int]:
@@ -55,7 +58,7 @@ class IAmThinkingPlugin(Star):
         logger.info(
             "[iamthinking] 配置加载: enabled=%s, thinking=%s, done=%s, "
             "remove_thinking=%s, timeout=%s, error=%s, remove_thinking_on_error=%s, "
-            "using_tool=%s, remove_thinking_on_tool=%s",
+            "using_tool=%s, remove_thinking_on_tool=%s, pick_random=%s",
             self.cfg.enabled,
             self.cfg.thinking_emoji_ids,
             self.cfg.done_emoji_ids,
@@ -65,6 +68,7 @@ class IAmThinkingPlugin(Star):
             self.cfg.remove_thinking_on_error,
             self.cfg.using_tool_emoji_ids,
             self.cfg.remove_thinking_on_tool,
+            self.cfg.pick_random,
         )
 
     async def terminate(self):
@@ -121,7 +125,11 @@ class IAmThinkingPlugin(Star):
         if bot is None:
             return False
         all_ok = True
-        for emoji_id in sorted(set(emoji_ids)):
+        target_ids = sorted(set(emoji_ids))
+        if set_ and self.cfg.pick_random and len(target_ids) > 1:
+            # 贴的时候只随机取一个
+            target_ids = [random.choice(target_ids)]
+        for emoji_id in target_ids:
             try:
                 logger.debug(
                     "[iamthinking] 贴表情: message_id=%s emoji_id=%s set=%s",
